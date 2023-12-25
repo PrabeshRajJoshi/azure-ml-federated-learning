@@ -22,6 +22,8 @@ from azure.ai.ml import MLClient, Input, Output
 from azure.ai.ml.constants import AssetTypes
 from azure.ai.ml.dsl import pipeline
 from azure.ai.ml import load_component
+from azure.ai.ml.entities import RecurrenceTrigger
+from azure.ai.ml.entities import JobSchedule
 
 # to handle yaml config easily
 from omegaconf import OmegaConf
@@ -72,6 +74,13 @@ parser.add_argument(
     default=False,
     action="store_true",
     help="Wait for the pipeline to complete",
+)
+
+parser.add_argument(
+    "--schedule",
+    type=str,
+    required=False,
+    help="Schedule the pipeline: begin - schedule to run repeatedly at some interval, end - end the schedule",
 )
 
 args = parser.parse_args()
@@ -466,34 +475,63 @@ pipeline_job = fl_ccfraud_basic()
 print(pipeline_job)
 
 if not args.offline:
-    print("Submitting the pipeline job to your AzureML workspace...")
-    pipeline_job = ML_CLIENT.jobs.create_or_update(
-        pipeline_job, experiment_name="fl_demo_ccfraud"
-    )
+    if args.schedule:
+        schedule_name = "run_every_day"
+        if args.schedule == "begin":
+            print("Scheduling the pipeline job to run every 24 hours on your AzureML workspace...")
+            
+            # prepare the schedule trigger
+            recurrence_trigger = RecurrenceTrigger(
+                frequency="hour",
+                interval=24,
+            )
 
-    print("The url to see your live job running is returned by the sdk:")
-    print(pipeline_job.services["Studio"].endpoint)
+            # create the scheduled job
+            job_schedule = JobSchedule(
+                name=schedule_name,
+                trigger=recurrence_trigger,
+                create_job=pipeline_job
+            )
+            # submit to run the job on schedule
+            job_schedule = ML_CLIENT.schedules.begin_create_or_update(
+                schedule=job_schedule
+            ).result()
 
-    webbrowser.open(pipeline_job.services["Studio"].endpoint)
+        elif args.schedule == "end":
+            print("Terminating the pipeline job that runs every 24 hours on your AzureML workspace...")
+            # first disable the schedule
+            ML_CLIENT.schedules.begin_disable(name=schedule_name).result()
+            # then delete the schedule
+            ML_CLIENT.schedules.begin_delete(name=schedule_name).result()
+    else:
+        print("Submitting the pipeline job to your AzureML workspace...")
+        pipeline_job = ML_CLIENT.jobs.create_or_update(
+            pipeline_job, experiment_name="fl_demo_ccfraud"
+        )
 
-    if args.wait:
-        job_name = pipeline_job.name
-        status = pipeline_job.status
+        print("The url to see your live job running is returned by the sdk:")
+        print(pipeline_job.services["Studio"].endpoint)
 
-        while status not in ["Failed", "Completed", "Canceled"]:
-            print(f"Job current status is {status}")
+        webbrowser.open(pipeline_job.services["Studio"].endpoint)
 
-            # check status after every 100 sec.
-            time.sleep(100)
-            try:
-                pipeline_job = ML_CLIENT.jobs.get(name=job_name)
-            except azure.identity._exceptions.CredentialUnavailableError as e:
-                print(f"Token expired or Credentials unavailable: {e}")
-                sys.exit(5)
+        if args.wait:
+            job_name = pipeline_job.name
             status = pipeline_job.status
 
-        print(f"Job finished with status {status}")
-        if status in ["Failed", "Canceled"]:
-            sys.exit(1)
+            while status not in ["Failed", "Completed", "Canceled"]:
+                print(f"Job current status is {status}")
+
+                # check status after every 100 sec.
+                time.sleep(100)
+                try:
+                    pipeline_job = ML_CLIENT.jobs.get(name=job_name)
+                except azure.identity._exceptions.CredentialUnavailableError as e:
+                    print(f"Token expired or Credentials unavailable: {e}")
+                    sys.exit(5)
+                status = pipeline_job.status
+
+            print(f"Job finished with status {status}")
+            if status in ["Failed", "Canceled"]:
+                sys.exit(1)
 else:
     print("The pipeline was NOT submitted, omit --offline to send it to AzureML.")
