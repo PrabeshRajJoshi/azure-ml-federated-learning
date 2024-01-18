@@ -77,6 +77,13 @@ parser.add_argument(
     help="Wait for the pipeline to complete",
 )
 
+parser.add_argument(
+    "--register_components",
+    default=False,
+    action="store_true",
+    help="Sets flag to register the pipeline components in the workspace.",
+)
+
 args = parser.parse_args()
 
 # load the config from a local yaml file
@@ -514,6 +521,38 @@ def fl_ccfraud_basic():
                 unique_id=pipeline_identifier, # Note: this might be changed to a constant to get model versions in the future.
             ),
         )
+    if not args.offline and args.register_components:
+        # register the preprocessing component to the workspace
+        silo_pre_processing_component = ML_CLIENT.create_or_update(silo_pre_processing_step.component)
+
+        # Create (register) the component in your workspace
+        print(
+            f"Component {silo_pre_processing_component.name} with Version {silo_pre_processing_component.version} is registered"
+        )
+
+        # register the silo training component to the workspace
+        silo_training_component = ML_CLIENT.create_or_update(silo_training_step.component)
+
+        # Create (register) the component in your workspace
+        print(
+            f"Component {silo_training_component.name} with Version {silo_training_component.version} is registered"
+        )
+        # register the aggregate weights component to the workspace
+        aggregate_weights_component = ML_CLIENT.create_or_update(aggregate_weights_step.component)
+
+        # Create (register) the component in your workspace
+        print(
+            f"Component {aggregate_weights_component.name} with Version {aggregate_weights_component.version} is registered"
+        )
+
+        # register the save model component to the workspace
+        register_component = ML_CLIENT.create_or_update(register_model_step.component)
+
+        # Create (register) the component in your workspace
+        print(
+            f"Component {register_component.name} with Version {register_component.version} is registered"
+        )
+
     return {"registered_model": register_model_step.outputs.output_model}
 
 
