@@ -197,6 +197,10 @@ aggregate_component = load_component(
     source=os.path.join(SHARED_COMPONENTS_FOLDER, "aggregatemodelweights", "spec.yaml")
 )
 
+register_model_component = load_component(
+    source=os.path.join(COMPONENTS_FOLDER, "registermodel", "spec.yaml")
+)
+
 if (
     hasattr(YAML_CONFIG.training_parameters, "run_data_analysis")
     and YAML_CONFIG.training_parameters.run_data_analysis
@@ -487,14 +491,36 @@ def fl_ccfraud_basic():
 
         # let's keep track of the checkpoint to be used as input for next iteration
         running_checkpoint = aggregate_weights_step.outputs.aggregated_output
+    
+    # register the final aggregated model
+    register_model_step = register_model_component(
+        # The final aggregated model
+        aggregated_output=running_checkpoint,
+        # The relative path where the registered models are located
+        model_name=YAML_CONFIG.training_parameters.model_name
+    )
 
-    return {"final_aggregated_model": running_checkpoint}
+    register_model_step.name = "final_model_register"
+    # this is done in the orchestrator compute
+    register_model_step.compute = (
+        YAML_CONFIG.federated_learning.orchestrator.compute
+    )
+    register_model_step.outputs.output_model = Output(
+            type=AssetTypes.MLFLOW_MODEL,
+            mode="rw_mount",
+            path=custom_fl_data_path(
+                YAML_CONFIG.federated_learning.orchestrator.datastore,
+                "final_model",
+                unique_id=pipeline_identifier, # Note: this might be changed to a constant to get model versions in the future.
+            ),
+        )
+    return {"registered_model": register_model_step.outputs.output_model}
 
 
-pipeline_job = fl_ccfraud_basic()
+pipeline_job_train = fl_ccfraud_basic()
 
 # Inspect built pipeline
-print(pipeline_job)
+print(pipeline_job_train)
 
 if not args.offline:
     print("Submitting the pipeline job to your AzureML workspace...")
