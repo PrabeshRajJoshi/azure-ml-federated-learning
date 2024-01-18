@@ -21,6 +21,7 @@ from typing import List
 import models as models
 import datasets as datasets
 from distutils.util import strtobool
+from collections import OrderedDict
 
 # DP
 from opacus import PrivacyEngine
@@ -512,12 +513,24 @@ class CCFraudTrainer:
 
         if not self._distributed:
             logger.debug("Save model")
-            torch.save(self.model_.state_dict(), self._model_path)
+            torch.save(
+                OrderedDict({
+                    'state_dict': self.model_.state_dict(),
+                    'input_dim': self._input_dim,
+                }),
+                self._model_path
+            )
             logger.info(f"Model saved to {self._model_path}")
         elif self._rank == 0:
             # DDP comes with "module." prefix: https://pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html
             logger.debug("Save model")
-            torch.save(self.model_.module.state_dict(), self._model_path)
+            torch.save(
+                OrderedDict({
+                    'state_dict': self.model_.module.state_dict(),
+                    'input_dim': self._input_dim,
+                }),
+                self._model_path
+            )
             logger.info(f"Model saved to {self._model_path}")
 
 
