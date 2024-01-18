@@ -26,7 +26,7 @@ from azure.ai.ml import load_component
 # to handle yaml config easily
 from omegaconf import OmegaConf
 
-#to read informatio from json config file
+#to read information from json config file
 import json
 from azure.ai.ml.exceptions import ErrorCategory, ErrorTarget, ValidationException
 
