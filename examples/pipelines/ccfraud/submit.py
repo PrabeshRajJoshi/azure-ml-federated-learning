@@ -26,6 +26,9 @@ from azure.ai.ml import load_component
 # to handle yaml config easily
 from omegaconf import OmegaConf
 
+#to read information from json config file
+import json
+from azure.ai.ml.exceptions import ErrorCategory, ErrorTarget, ValidationException
 
 ############################
 ### CONFIGURE THE SCRIPT ###
@@ -74,6 +77,13 @@ parser.add_argument(
     help="Wait for the pipeline to complete",
 )
 
+parser.add_argument(
+    "--register_components",
+    default=False,
+    action="store_true",
+    help="Sets flag to register the pipeline components in the workspace.",
+)
+
 args = parser.parse_args()
 
 # load the config from a local yaml file
@@ -89,10 +99,35 @@ SHARED_COMPONENTS_FOLDER = os.path.join(
     os.path.dirname(__file__), "..", "..", "components", "utils"
 )
 
+# path to the config file
+CONFIG_FOLDER = os.path.join(
+    os.path.dirname(__file__), "..", "..", ".."
+)
+
 ###########################
 ### CONNECT TO AZURE ML ###
 ###########################
 
+def get_tenant_id(config_path: str="config.json") -> str:
+    with open(config_path, "r") as config_file:
+        config = json.load(config_file)
+
+    # Checking the keys in the config.json file to check for required parameters.
+    if not all([k in config.keys() for k in ("subscription_id", "resource_group", "workspace_name", "tenant_id")]):
+        msg = (
+            "The config file found in: {} does not seem to contain the required "
+            "parameters. Please make sure it contains your subscription_id, "
+            "resource_group, workspace_name, and tenant_id."
+        )
+        raise ValidationException(
+            message=msg.format(config_path),
+            no_personal_data_message=msg.format("[config_path]"),
+            target=ErrorTarget.GENERAL,
+            error_category=ErrorCategory.USER_ERROR,
+        )
+    # get information from config.json
+    tenant_id_from_config = config["tenant_id"]
+    return tenant_id_from_config
 
 def connect_to_aml():
     try:
@@ -100,8 +135,11 @@ def connect_to_aml():
         # Check if given credential can get token successfully.
         credential.get_token("https://management.azure.com/.default")
     except Exception as ex:
+        tenant_id = get_tenant_id(
+            config_path=os.path.join(CONFIG_FOLDER, "config.json")
+            )
         # Fall back to InteractiveBrowserCredential in case DefaultAzureCredential does not work
-        credential = InteractiveBrowserCredential()
+        credential = InteractiveBrowserCredential(tenant_id=tenant_id)
 
     # Get a handle to workspace
     try:
@@ -164,6 +202,10 @@ training_component = load_component(
 
 aggregate_component = load_component(
     source=os.path.join(SHARED_COMPONENTS_FOLDER, "aggregatemodelweights", "spec.yaml")
+)
+
+register_model_component = load_component(
+    source=os.path.join(COMPONENTS_FOLDER, "registermodel", "spec.yaml")
 )
 
 if (
@@ -456,19 +498,73 @@ def fl_ccfraud_basic():
 
         # let's keep track of the checkpoint to be used as input for next iteration
         running_checkpoint = aggregate_weights_step.outputs.aggregated_output
+    
+    # register the final aggregated model
+    register_model_step = register_model_component(
+        # The final aggregated model
+        aggregated_output=running_checkpoint,
+        # The relative path where the registered models are located
+        model_name=YAML_CONFIG.training_parameters.model_name
+    )
 
-    return {"final_aggregated_model": running_checkpoint}
+    register_model_step.name = "final_model_register"
+    # this is done in the orchestrator compute
+    register_model_step.compute = (
+        YAML_CONFIG.federated_learning.orchestrator.compute
+    )
+    register_model_step.outputs.output_model = Output(
+            type=AssetTypes.MLFLOW_MODEL,
+            mode="rw_mount",
+            path=custom_fl_data_path(
+                YAML_CONFIG.federated_learning.orchestrator.datastore,
+                "final_model",
+                unique_id=pipeline_identifier, # Note: this might be changed to a constant to get model versions in the future.
+            ),
+        )
+    if not args.offline and args.register_components:
+        # register the preprocessing component to the workspace
+        silo_pre_processing_component = ML_CLIENT.create_or_update(silo_pre_processing_step.component)
+
+        # Create (register) the component in your workspace
+        print(
+            f"Component {silo_pre_processing_component.name} with Version {silo_pre_processing_component.version} is registered"
+        )
+
+        # register the silo training component to the workspace
+        silo_training_component = ML_CLIENT.create_or_update(silo_training_step.component)
+
+        # Create (register) the component in your workspace
+        print(
+            f"Component {silo_training_component.name} with Version {silo_training_component.version} is registered"
+        )
+        # register the aggregate weights component to the workspace
+        aggregate_weights_component = ML_CLIENT.create_or_update(aggregate_weights_step.component)
+
+        # Create (register) the component in your workspace
+        print(
+            f"Component {aggregate_weights_component.name} with Version {aggregate_weights_component.version} is registered"
+        )
+
+        # register the save model component to the workspace
+        register_component = ML_CLIENT.create_or_update(register_model_step.component)
+
+        # Create (register) the component in your workspace
+        print(
+            f"Component {register_component.name} with Version {register_component.version} is registered"
+        )
+
+    return {"registered_model": register_model_step.outputs.output_model}
 
 
-pipeline_job = fl_ccfraud_basic()
+pipeline_job_train = fl_ccfraud_basic()
 
 # Inspect built pipeline
-print(pipeline_job)
+print(pipeline_job_train)
 
 if not args.offline:
     print("Submitting the pipeline job to your AzureML workspace...")
     pipeline_job = ML_CLIENT.jobs.create_or_update(
-        pipeline_job, experiment_name="fl_demo_ccfraud"
+        pipeline_job_train, experiment_name="fl_demo_ccfraud"
     )
 
     print("The url to see your live job running is returned by the sdk:")

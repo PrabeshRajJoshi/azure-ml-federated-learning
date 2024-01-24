@@ -9,7 +9,7 @@ This page describes the different sandboxes that you can **fully provision and u
 - [Confidential VM sandboxes](#confidential-sandboxes) : a sandbox where the data is kept in storages without public network access, and only accessible by the computes through a vnet, and the computes are Confidential VMs
 - [Configurable sandboxes](#configurable-sandboxes) : at the root of our eyes-on/eyes-off sandboxes, these bicep scripts allow you to modify multiple parameters to fit your needs.
 
-:rotating_light: :rotating_light: :rotating_light: **IMPORTANT: These sandboxes require you to be the _Owner_ of an Azure resource group.** _Contributor_ role is not enough. In your subscription, depending on admin policies, even if you can create a resource group yourself, you might not be the _Owner_ of it. Without ownership, you will not be able to set the RBAC roles necessary for provisioning these sandboxes. Ask your subscription administrator for help.
+:rotating_light: :rotating_light: :rotating_light: **IMPORTANT: These sandboxes require you to be the _Owner_ of an Azure resource group.** _Contributor_ role is not enough. In your subscription, depending on admin policies, even if you can create a resource group yourself, you might not be the _Owner_ of it. Without ownership, you will not be able to set the RBAC roles necessary for provisioning these sandboxes. Ask your subscription administrator for help. In addition, if you are using a free subscription, please ensure the VM used for orchestrator and silos do not exceed 4 vCPU (e.g. Compute1SKU = Standard_DS3_v2).
 
 ## Minimal sandbox
 

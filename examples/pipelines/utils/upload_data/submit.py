@@ -25,6 +25,9 @@ from azure.ai.ml import load_component
 # to handle yaml config easily
 from omegaconf import OmegaConf
 
+#to read information from json config file
+import json
+from azure.ai.ml.exceptions import ErrorCategory, ErrorTarget, ValidationException
 
 ############################
 ### CONFIGURE THE SCRIPT ###
@@ -107,10 +110,34 @@ COMPONENTS_FOLDER = os.path.join(
 # flag for vertical jobs
 IS_VERTICAL = "_VERTICAL" in args.example.upper()
 
+# path to the config file
+CONFIG_FOLDER = os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", ".."
+)
 ###########################
 ### CONNECT TO AZURE ML ###
 ###########################
 
+def get_tenant_id(config_path: str="config.json") -> str:
+    with open(config_path, "r") as config_file:
+        config = json.load(config_file)
+
+    # Checking the keys in the config.json file to check for required parameters.
+    if not all([k in config.keys() for k in ("subscription_id", "resource_group", "workspace_name", "tenant_id")]):
+        msg = (
+            "The config file found in: {} does not seem to contain the required "
+            "parameters. Please make sure it contains your subscription_id, "
+            "resource_group, workspace_name, and tenant_id."
+        )
+        raise ValidationException(
+            message=msg.format(config_path),
+            no_personal_data_message=msg.format("[config_path]"),
+            target=ErrorTarget.GENERAL,
+            error_category=ErrorCategory.USER_ERROR,
+        )
+    # get information from config.json
+    tenant_id_from_config = config["tenant_id"]
+    return tenant_id_from_config
 
 def connect_to_aml():
     try:
@@ -118,8 +145,11 @@ def connect_to_aml():
         # Check if given credential can get token successfully.
         credential.get_token("https://management.azure.com/.default")
     except Exception as ex:
+        tenant_id = get_tenant_id(
+            config_path=os.path.join(CONFIG_FOLDER, "config.json")
+            )
         # Fall back to InteractiveBrowserCredential in case DefaultAzureCredential not work
-        credential = InteractiveBrowserCredential()
+        credential = InteractiveBrowserCredential(tenant_id=tenant_id)
 
     # Get a handle to workspace
     try:

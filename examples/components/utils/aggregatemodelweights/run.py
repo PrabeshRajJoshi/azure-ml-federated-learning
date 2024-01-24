@@ -7,6 +7,7 @@ import glob
 import shutil
 from distutils.util import strtobool
 import torch
+from collections import OrderedDict
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -87,6 +88,11 @@ class PyTorchStateDictFedAvg:
                 # if the model loaded is actually a class, we need to extract the state_dict
                 self.model_object = self.avg_state_dict
                 self.avg_state_dict = self.model_object.state_dict()
+            else:
+                # extract the model input dimension information
+                self.input_dim = self.avg_state_dict['input_dim']
+                # extract the state dictionary information
+                self.avg_state_dict = self.avg_state_dict['state_dict']
 
             self.ref_keys = set(self.avg_state_dict.keys())
 
@@ -106,6 +112,9 @@ class PyTorchStateDictFedAvg:
                 # if the model loaded is actually a class, we need to extract the state_dict
                 model_object = model_to_add
                 model_to_add = model_object.state_dict()
+            else:
+                # extract the state dictionary information
+                model_to_add = model_to_add['state_dict']
 
             model_to_add_keys = set(model_to_add.keys())
             assert (
@@ -135,7 +144,13 @@ class PyTorchStateDictFedAvg:
         """
         if self.model_class == "OrderedDict":
             self.logger.info(f"Saving state dict to path={model_path}")
-            torch.save(self.avg_state_dict, model_path)
+            torch.save(
+                OrderedDict({
+                    'state_dict': self.avg_state_dict,
+                    'input_dim': self.input_dim,
+                }),
+                model_path
+            )
         else:
             self.logger.info(f"Saving model object to path={model_path}")
             if not (self.model_object is None):
