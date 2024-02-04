@@ -104,7 +104,8 @@ def register_model(model_checkpoint_path: str,
     mlflow.pytorch.log_model(
         model_to_deploy,
         artifact_path=model_name,
-        registered_model_name=model_name
+        registered_model_name=model_name,
+        code_paths=["./models.py"],
     )
 
 def main(cli_args=None):
