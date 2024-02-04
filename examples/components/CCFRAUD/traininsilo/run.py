@@ -259,9 +259,9 @@ class CCFraudTrainer:
         logger.info(f"Train data dir: {train_data_dir}, Test data dir: {test_data_dir}")
         with EncryptedFile(train_data_dir + "/fraud_weight.txt") as f:
             self.fraud_weight_ = np.loadtxt(f).item()
-        with EncryptedFile(train_data_dir + "/data.csv") as f:
+        with EncryptedFile(train_data_dir + "/processed.csv") as f:
             train_df = pd.read_csv(f)
-        with EncryptedFile(test_data_dir + "/data.csv") as f:
+        with EncryptedFile(test_data_dir + "/processed.csv") as f:
             test_df = pd.read_csv(f)
         if model_name == "SimpleLinear":
             train_dataset = datasets.FraudDataset(train_df)

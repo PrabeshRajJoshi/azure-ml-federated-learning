@@ -11,6 +11,9 @@ federated_learning:
   orchestrator:
     compute: orchestrator-01
     datastore: datastore_orchestrator
+    data_transformers:
+      selected_silo: silo0
+      path: azureml://datastores/datastore_orchestrator/paths/federated_learning/ccfraud/data_transformers
 
   silos:
     - name: silo0
@@ -25,6 +28,8 @@ federated_learning:
         type: uri_file
         mode: 'download'
         path: azureml://datastores/datastore_silo0/paths/federated_learning/ccfraud/raw_test_data
+      data_transformers:
+        path: azureml://datastores/datastore_silo0/paths/federated_learning/ccfraud/data_transformers
 
     - name: silo1
       computes: 
@@ -38,6 +43,8 @@ federated_learning:
         type: uri_file
         mode: 'download'
         path: azureml://datastores/datastore_silo1/paths/federated_learning/ccfraud/raw_test_data
+      data_transformers:
+        path: azureml://datastores/datastore_silo1/paths/federated_learning/ccfraud/data_transformers
 
     - name: silo2
       computes: 
@@ -51,6 +58,8 @@ federated_learning:
         type: uri_file
         mode: 'download'
         path: azureml://datastores/datastore_silo2/paths/federated_learning/ccfraud/raw_test_data
+      data_transformers:
+        path: azureml://datastores/datastore_silo2/paths/federated_learning/ccfraud/data_transformers
 
 data_analysis_parameters:
   onehot_columns_prefix: category_,gender_,street_,city_,state_,job_,region_
@@ -76,6 +85,9 @@ training_parameters:
 
   # if you want to use the privacy_engine.make_private method, please set the value of dp_noise_multiplier parameter
   # dp_noise_multiplier: 1.0 # Noise multiplier - to add noise to gradients (DP)
+
+inference_parameters:
+  score_mode: append
 
 confidentiality:
   enable: false

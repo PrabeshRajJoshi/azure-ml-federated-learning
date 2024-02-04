@@ -8,31 +8,37 @@ description: Component for preprocessing raw data from silo's blob storage
 is_deterministic: true
 
 inputs:
-  raw_training_data:
+  raw_data:
     type: uri_file
     description: the raw training data in a given silo
-  raw_testing_data:
-    type: uri_file
-    description: the raw testing data in a given silo
   metrics_prefix:
     type: string
     description: Metrics prefix
     default: Default-prefix
     optional: true
+  data_transformers:
+    type: uri_file
+    description: the categorical encoders and numerical scalers for a silo
+    optional: true
 
 
 outputs:
-  processed_train_data:
+  processed_data:
     type: uri_folder
     description: the output training data after preprocessing
-  processed_test_data:
+  data_transformers_out:
     type: uri_folder
-    description: the output testing data after preprocessing
+    description: the trained categorical encoders and numerical scalers for a silo
 
 code: .
 
 command: >-
-  python run.py --raw_training_data ${{inputs.raw_training_data}} --raw_testing_data ${{inputs.raw_testing_data}} --train_output ${{outputs.processed_train_data}} --test_output ${{outputs.processed_test_data}} $[[--metrics_prefix ${{inputs.metrics_prefix}}]]
+  python run.py 
+  --raw_data_dir ${{inputs.raw_data}} 
+  --processed_data_dir ${{outputs.processed_data}}
+  --data_transformers_dir_out ${{outputs.data_transformers_out}}
+  $[[--metrics_prefix ${{inputs.metrics_prefix}}]]
+  $[[--data_transformers_dir ${{inputs.data_transformers}}]]
 
 # NOTE: using one of Azure ML's curated environments
 # which has all the dependencies needed for this job

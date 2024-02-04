@@ -19,7 +19,7 @@ import sys
 import azure
 from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
 from azure.ai.ml import MLClient, Input, Output
-from azure.ai.ml.constants import AssetTypes
+from azure.ai.ml.constants import AssetTypes, InputOutputModes
 from azure.ai.ml.dsl import pipeline
 from azure.ai.ml import load_component
 
@@ -262,6 +262,7 @@ pipeline_identifier = getUniqueIdentifier()
     description=f'FL cross-silo basic pipeline and the unique identifier is "{pipeline_identifier}" that can help you to track files in the storage account.',
 )
 def fl_ccfraud_basic():
+
     #####################
     ### DATA-ANALYSIS ###
     #####################
@@ -300,69 +301,114 @@ def fl_ccfraud_basic():
 
     # once per silo, we're running a pre-processing step
 
-    silo_preprocessed_train_data = (
-        []
-    )  # list of preprocessed train datasets for each silo
+    silo_preprocessed_train_data = []  # list of preprocessed train datasets for each silo
     silo_preprocessed_test_data = []  # list of preprocessed test datasets for each silo
 
     for silo_index, silo_config in enumerate(YAML_CONFIG.federated_learning.silos):
-        # run the pre-processing component once
-        silo_pre_processing_step = preprocessing_component(
-            raw_training_data=Input(
+        # run the pre-processing component once for train data
+        silo_pre_processing_step_train = preprocessing_component(
+            raw_data=Input(
                 type=silo_config.training_data.type,
                 mode=silo_config.training_data.mode,
                 path=silo_config.training_data.path,
             ),
-            raw_testing_data=Input(
+            metrics_prefix=silo_config.name,
+        )
+
+        # add a readable name to the step
+        silo_pre_processing_step_train.name = f"silo_{silo_index}_preprocessing_train"
+
+        # make sure the compute corresponds to the silo
+        silo_pre_processing_step_train.compute = silo_config.computes[0]
+
+        # make sure the data is written in the right datastore
+        silo_pre_processing_step_train.outputs.processed_data = Output(
+            type=AssetTypes.URI_FOLDER,
+            mode="mount",
+            path=custom_fl_data_path(silo_config.datastore, "train_data"),
+        )
+        
+        if silo_config.name == YAML_CONFIG.federated_learning.orchestrator.data_transformers.selected_silo:
+            # save the transformers in the orchestrator
+            silo_pre_processing_step_train.outputs.data_transformers_out = Output(
+                type=AssetTypes.URI_FOLDER,
+                mode=InputOutputModes.MOUNT,
+                path=YAML_CONFIG.federated_learning.orchestrator.data_transformers.path,
+            )
+        else:
+            # save the transformers in the respective silo
+            silo_pre_processing_step_train.outputs.data_transformers_out = Output(
+                type=AssetTypes.URI_FOLDER,
+                mode=InputOutputModes.MOUNT,
+                path=silo_config.data_transformers.path,
+            )
+
+        # run the pre-processing component once for test data
+        silo_pre_processing_step_test = preprocessing_component(
+            raw_data=Input(
                 type=silo_config.testing_data.type,
                 mode=silo_config.testing_data.mode,
                 path=silo_config.testing_data.path,
             ),
             metrics_prefix=silo_config.name,
+            data_transformers=silo_pre_processing_step_train.outputs.data_transformers_out
         )
+
+        # add a readable name to the step
+        silo_pre_processing_step_test.name = f"silo_{silo_index}_preprocessing_test"
+
+        # make sure the compute corresponds to the silo
+        silo_pre_processing_step_test.compute = silo_config.computes[0]
+
+        # make sure the data is written in the right datastore
+        silo_pre_processing_step_test.outputs.processed_data = Output(
+            type=AssetTypes.URI_FOLDER,
+            mode="mount",
+            path=custom_fl_data_path(silo_config.datastore, "test_data"),
+        )
+        # make sure the data is written in the right datastore
+        silo_pre_processing_step_test.outputs.data_transformers_out = Output(
+            type=AssetTypes.URI_FOLDER,
+            mode="mount",
+            path=silo_config.data_transformers.path,
+        )
+
         # if confidentiality is enabled, add the keyvault and key name as environment variables
         if hasattr(YAML_CONFIG, "confidentiality"):
-            silo_pre_processing_step.environment_variables = {
+            silo_pre_processing_step_train.environment_variables = {
+                "CONFIDENTIALITY_DISABLE": str(not YAML_CONFIG.confidentiality.enable),
+                "CONFIDENTIALITY_KEYVAULT": YAML_CONFIG.confidentiality.keyvault,
+                "CONFIDENTIALITY_KEY_NAME": YAML_CONFIG.confidentiality.key_name,
+            }
+            silo_pre_processing_step_test.environment_variables = {
                 "CONFIDENTIALITY_DISABLE": str(not YAML_CONFIG.confidentiality.enable),
                 "CONFIDENTIALITY_KEYVAULT": YAML_CONFIG.confidentiality.keyvault,
                 "CONFIDENTIALITY_KEY_NAME": YAML_CONFIG.confidentiality.key_name,
             }
         else:
-            silo_pre_processing_step.environment_variables = {
+            silo_pre_processing_step_train.environment_variables = {
                 "CONFIDENTIALITY_DISABLE": "True",
             }
-
-        # add a readable name to the step
-        silo_pre_processing_step.name = f"silo_{silo_index}_preprocessing"
-
-        # make sure the compute corresponds to the silo
-        silo_pre_processing_step.compute = silo_config.computes[0]
-
+            silo_pre_processing_step_test.environment_variables = {
+                "CONFIDENTIALITY_DISABLE": "True",
+            }
+            
         # assign instance type for AKS, if available
         if hasattr(silo_config, "instance_type"):
-            silo_pre_processing_step.resources = {
+            silo_pre_processing_step_train.resources = {
+                "instance_type": silo_config.instance_type
+            }
+            silo_pre_processing_step_test.resources = {
                 "instance_type": silo_config.instance_type
             }
 
-        # make sure the data is written in the right datastore
-        silo_pre_processing_step.outputs.processed_train_data = Output(
-            type=AssetTypes.URI_FOLDER,
-            mode="mount",
-            path=custom_fl_data_path(silo_config.datastore, "train_data"),
-        )
-        silo_pre_processing_step.outputs.processed_test_data = Output(
-            type=AssetTypes.URI_FOLDER,
-            mode="mount",
-            path=custom_fl_data_path(silo_config.datastore, "test_data"),
-        )
-
         # store a handle to the train data for this silo
         silo_preprocessed_train_data.append(
-            silo_pre_processing_step.outputs.processed_train_data
+            silo_pre_processing_step_train.outputs.processed_data
         )
         # store a handle to the test data for this silo
         silo_preprocessed_test_data.append(
-            silo_pre_processing_step.outputs.processed_test_data
+            silo_pre_processing_step_test.outputs.processed_data
         )
 
     ################
@@ -521,37 +567,25 @@ def fl_ccfraud_basic():
                 unique_id=pipeline_identifier, # Note: this might be changed to a constant to get model versions in the future.
             ),
         )
+    
     if not args.offline and args.register_components:
         # register the preprocessing component to the workspace
-        silo_pre_processing_component = ML_CLIENT.create_or_update(silo_pre_processing_step.component)
-
-        # Create (register) the component in your workspace
-        print(
-            f"Component {silo_pre_processing_component.name} with Version {silo_pre_processing_component.version} is registered"
-        )
+        silo_pre_processing_component_train = ML_CLIENT.create_or_update(silo_pre_processing_step_train.component)
+        silo_pre_processing_component_test = ML_CLIENT.create_or_update(silo_pre_processing_step_test.component)
+        print(f"Component {silo_pre_processing_component_train.name} with Version {silo_pre_processing_component_train.version} is registered")
+        print(f"Component {silo_pre_processing_component_test.name} with Version {silo_pre_processing_component_test.version} is registered")
 
         # register the silo training component to the workspace
         silo_training_component = ML_CLIENT.create_or_update(silo_training_step.component)
-
-        # Create (register) the component in your workspace
-        print(
-            f"Component {silo_training_component.name} with Version {silo_training_component.version} is registered"
-        )
+        print(f"Component {silo_training_component.name} with Version {silo_training_component.version} is registered")
+        
         # register the aggregate weights component to the workspace
         aggregate_weights_component = ML_CLIENT.create_or_update(aggregate_weights_step.component)
+        print(f"Component {aggregate_weights_component.name} with Version {aggregate_weights_component.version} is registered")
 
-        # Create (register) the component in your workspace
-        print(
-            f"Component {aggregate_weights_component.name} with Version {aggregate_weights_component.version} is registered"
-        )
-
-        # register the save model component to the workspace
+        # register the register_model component to the workspace
         register_component = ML_CLIENT.create_or_update(register_model_step.component)
-
-        # Create (register) the component in your workspace
-        print(
-            f"Component {register_component.name} with Version {register_component.version} is registered"
-        )
+        print(f"Component {register_component.name} with Version {register_component.version} is registered")
 
     return {"registered_model": register_model_step.outputs.output_model}
 
