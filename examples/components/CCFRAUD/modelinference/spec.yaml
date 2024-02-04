@@ -1,0 +1,38 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+name: msft_fl_ccfraud_inference_in_orchestrator
+version: 0.0.1
+display_name: Model inference via registered model
+type: command
+description: Component to infer scores from the aggregated  Model
+is_deterministic: true
+
+inputs:
+  preprocessed_data:
+    type: uri_file
+    description: Preprocessed data ready for inference
+    optional: false
+  registered_model:
+    type: mlflow_model
+    description: Registered model used for inference.
+    optional: false
+  score_mode:
+    type: string
+    description: The scoring mode for inference.
+  
+outputs:
+  scores:
+    type: uri_folder
+    description: The location of the scores after inference.
+
+code: .
+
+command: >-
+  python infer.py 
+  --preprocessed_data_dir ${{inputs.preprocessed_data}}
+  --registered_model ${{inputs.registered_model}}
+  --score_mode ${{inputs.score_mode}}
+  --scores_dir ${{outputs.scores}}
+
+environment:
+  conda_file: ./conda.yaml
+  image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04
